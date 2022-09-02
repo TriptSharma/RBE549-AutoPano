@@ -69,11 +69,32 @@ class Net(nn.Module):
         InputSize - Size of the Input
         OutputSize - Size of the Output
         """
+        self.input_size = InputSize  # HxWxC
+
         super().__init__()
         #############################
         # Fill your network initialization of choice here!
         #############################
-        ...
+
+        self.net = nn.Sequential(
+            nn.Conv2d(self.input_size[2], 64, 3, 1, padding=3//2),
+            nn.Conv2d(64, 64, 3, 1, padding=3//2),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 64, 3, 1, padding=3//2),
+            nn.Conv2d(64, 64, 3, 1, padding=3//2),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, 3, 1, padding=3//2),
+            nn.Conv2d(64, 128, 3, 1, padding=3//2),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(128, 128, 3, 1, padding=3//2),
+            nn.Dropout2d(.5),  # TODO: "Dropout applied after final 2 conv layers" is this extra?
+            nn.Conv2d(128, 128, 3, 1, padding=3//2),
+            nn.Dropout2d(.5),
+            nn.Linear(16*16*128, 1024),
+            nn.Dropout2d(.5),
+            nn.Linear(1024, 8*21),
+        )
+
         #############################
         # You will need to change the input size and output
         # size for your Spatial transformer network layer!
@@ -126,4 +147,9 @@ class Net(nn.Module):
         #############################
         # Fill your network structure of choice here!
         #############################
+        x_input = torch.concat([xa, xb], axis=1)  # Axis 1 assumes BxCxHxW axis order
+        x_net = self.net(x_input)
+        x_net = x_net.view((-1, 8, 21))
+        out = nn.Softmax(dim=2)(x_net)  # TODO: dim=2 along the 21 "classes" gets output Bx8?
+
         return out
