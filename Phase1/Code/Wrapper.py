@@ -17,6 +17,7 @@ Worcester Polytechnic Institute
 import numpy as np
 import cv2
 
+
 # Add any python libraries here
 
 
@@ -33,33 +34,33 @@ def main():
     """
 
     """
-	Corner Detection
-	Save Corner detection output as corners.png
-	"""
+    Corner Detection
+    Save Corner detection output as corners.png
+    """
 
     """
-	Perform ANMS: Adaptive Non-Maximal Suppression
-	Save ANMS output as anms.png
-	"""
+    Perform ANMS: Adaptive Non-Maximal Suppression
+    Save ANMS output as anms.png
+    """
 
     """
-	Feature Descriptors
-	Save Feature Descriptor output as FD.png
-	"""
+    Feature Descriptors
+    Save Feature Descriptor output as FD.png
+    """
 
     """
-	Feature Matching
-	Save Feature Matching output as matching.png
-	"""
+    Feature Matching
+    Save Feature Matching output as matching.png
+    """
 
     """
-	Refine: RANSAC, Estimate Homography
-	"""
+    Refine: RANSAC, Estimate Homography
+    """
 
     """
-	Image Warping + Blending
-	Save Panorama output as mypano.png
-	"""
+    Image Warping + Blending
+    Save Panorama output as mypano.png
+    """
 
 
 if __name__ == "__main__":

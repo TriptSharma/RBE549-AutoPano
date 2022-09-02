@@ -34,13 +34,13 @@ def main():
     """
 
     """
-	Obtain Homography using Deep Learning Model (Supervised and Unsupervised)
-	"""
+    Obtain Homography using Deep Learning Model (Supervised and Unsupervised)
+    """
 
     """
-	Image Warping + Blending
-	Save Panorama output as mypano.png
-	"""
+    Image Warping + Blending
+    Save Panorama output as mypano.png
+    """
 
 
 if __name__ == "__main__":
