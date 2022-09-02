@@ -3,7 +3,7 @@
 """
 RBE/CS Fall 2022: Classical and Deep Learning Approaches for
 Geometric Computer Vision
-Project 1: MyAutoPano: Phase 2 Starter Code
+Project 1: MyAutoPano: Phase 1 Starter Code
 
 
 Author(s):
@@ -19,15 +19,16 @@ import cv2
 
 
 # Add any python libraries here
+import argparse
 
 
 def main():
     # Add any Command Line arguments here
-    # Parser = argparse.ArgumentParser()
-    # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
+    Parser = argparse.ArgumentParser()
+    Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
 
-    # Args = Parser.parse_args()
-    # NumFeatures = Args.NumFeatures
+    Args = Parser.parse_args()
+    NumFeatures = Args.NumFeatures
 
     """
     Read a set of images for Panorama stitching

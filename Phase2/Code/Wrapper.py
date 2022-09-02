@@ -19,15 +19,17 @@ import numpy as np
 import cv2
 
 # Add any python libraries here
+import argparse
 
 
 def main():
     # Add any Command Line arguments here
-    # Parser = argparse.ArgumentParser()
-    # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
+    Parser = argparse.ArgumentParser()
+    Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
 
-    # Args = Parser.parse_args()
-    # NumFeatures = Args.NumFeatures
+    Args = Parser.parse_args()
+    NumFeatures = Args.NumFeatures
+    print(NumFeatures)
 
     """
     Read a set of images for Panorama stitching
