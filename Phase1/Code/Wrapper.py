@@ -33,8 +33,8 @@ Parser.add_argument('--NumFeatures', default=1000, help='Number of best features
 Parser.add_argument('--DataPath', default="../Data/Train/Set1", help='Path to the dataset folder to stitch')
 # TODO: tune these thresholds
 Parser.add_argument('--MatchRatioThreshold', default=.85)
-Parser.add_argument('--TauThreshold', default=1)
-Parser.add_argument('--RansacNMax', default=100)
+Parser.add_argument('--TauThreshold', default=200)
+Parser.add_argument('--RansacNMax', default=500)
 
 Args = Parser.parse_args()
 NumFeatures = Args.NumFeatures
@@ -184,7 +184,7 @@ def match(feature_descriptors_1, feature_descriptors_2, corners1=None, corners2=
 """
 Refine: RANSAC, Estimate Homography
 """
-def ransac(corners1, corners2, matches_ij):
+def ransac(corners1, corners2, matches_ij, img1=None, img2=None):
     # RANSAC:
     # 1) Select 4 randomly-selected feature pairs, (p_i1 from img_1, p_i2 from img_2) for i = [0,4)
     # 2) Compute homography between the two sets of points
@@ -192,25 +192,53 @@ def ransac(corners1, corners2, matches_ij):
     # 4) Repeat steps 1-3 until N_max iterations (or found 90% of total pts as inliers)
     # 5) Keep largest set of inliers that was found in the above steps/loop
     # 6) Re-compute least-squares Homography estimate on all inliers
-
+    matches_ij = np.array(matches_ij)
+    corners1_matched = corners1[matches_ij[:, 0]]
+    corners2_matched = corners2[matches_ij[:, 1]]
+    max_inliers_list = []
     for n in range(ransac_N_max):
         # random_idx = np.random.randint(0, len(matches_ij)-1, 4)
         random_idxs = (np.random.random_sample((4)) * (len(matches_ij)-1)).astype(int)
         matrix = np.zeros((len(random_idxs)*2, len(random_idxs)*2))
         vec = np.zeros((1, len(random_idxs)*2))
         for i, random_i in enumerate(random_idxs):
-            i1, i2 = matches_ij[random_i]
-            x1, y1 = corners1[i1]
-            x2, y2 = corners2[i2]
+            # i1, i2 = matches_ij[random_i]
+            x1, y1 = corners1_matched[random_i]
+            x2, y2 = corners2_matched[random_i]
             matrix[i*2, :] = [x1, y1, 1, 0, 0, 0, -x1*x2, -y1*x2]
             matrix[i*2+1, :] = [0, 0, 0, x1, y1, 1, -x1*y2, -y1*y2]
             vec[0, i*2] = x2
             vec[0, i*2+1] = y2
 
-        H = np.linalg.inv(matrix.T * matrix) @ (matrix.T * vec)
+        # H = np.linalg.inv(matrix.T * matrix) @ (matrix.T * vec)
+        H = np.linalg.lstsq(matrix, vec.T)[0]
+        H = np.concatenate((H, [[1]])).reshape((3, 3))
+        # TODO: fix scratch homography
+        H2 = cv2.findHomography(corners1_matched[random_idxs].reshape(-1, 1, 2), corners2_matched[random_idxs].reshape(-1, 1, 2), 0)[0]
+        if H2 is None:
+            continue
 
+        corners1_H = cv2.perspectiveTransform(corners1_matched.reshape(-1, 1, 2).astype(float), H2)
 
-    pass
+        SSD = np.sum(np.square(corners1_H.reshape(-1, 2) - corners2_matched), axis=1)
+        inlier_args = np.where(SSD < tau_threshold)[0]
+        if len(inlier_args) > len(max_inliers_list):
+            max_inliers_list = inlier_args
+        # corners1_H = np.hstack([corners1, np.ones((len(corners1), 1))]) @ H2
+        if len(max_inliers_list) > 0.9 * len(corners1):
+            print("Over 90% inliers!")
+            break
+
+        print("a")
+    if img1 is not None:
+        matches_img = np.hstack([img1, img2])
+        out = cv2.drawMatches(img1, [cv2.KeyPoint(x, y, 3) for x, y in corners1_matched.astype(float)],
+                        img2, [cv2.KeyPoint(x, y, 3) for x, y in corners2_matched.astype(float)],
+                        [cv2.DMatch(m1, m1, 0) for m1 in max_inliers_list], matches_img, (0, 255, 0), (0, 0, 255))
+        cv2.imwrite("ransac.png", out)
+    max_inliers_H = cv2.findHomography(corners1_matched[max_inliers_list], corners2_matched[max_inliers_list], 0)[0]
+
+    return max_inliers_H
 
 """
 Image Warping + Blending
@@ -227,7 +255,16 @@ best_corners = [anms(cs) for cs in corners]
 corners_descriptors = [get_descriptors(img_gray, corners_best) for img_gray, corners_best in zip(imgs_gray, best_corners)]
 
 img0_1_matches = match(corners_descriptors[0], corners_descriptors[1], best_corners[0], best_corners[1], imgs[0], imgs[1])
-ransac_out = ransac(best_corners[0], best_corners[1], img0_1_matches)
+ransac_H_out = ransac(best_corners[0], best_corners[1], img0_1_matches, imgs[0], imgs[1])
+
+img1 = cv2.warpPerspective(imgs[0], np.eye(3), (imgs[1].shape[1]*2, imgs[1].shape[0]*2))
+img2 = cv2.warpPerspective(imgs[1], np.linalg.inv(ransac_H_out), (imgs[1].shape[1]*2, imgs[1].shape[0]*2))
+# img_combo = cv2.bitwise_or(img1, img2)
+overlap_mask = np.any(img1 > 0, axis=2) & np.any(img2 > 0, axis=2)
+img_combo = (img1*~np.atleast_3d(overlap_mask)).astype(float) + img2.astype(float)
+
+cv2.imwrite("mypano01.png", img_combo)
+
 print('a')
 
 # if __name__ == "__main__":
