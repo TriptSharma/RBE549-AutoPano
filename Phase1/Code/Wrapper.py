@@ -23,56 +23,128 @@ import argparse
 import glob
 import os
 
+from scipy.ndimage import maximum_filter
+from scipy.ndimage import convolve
+
 def main():
     # Add any Command Line arguments here
     Parser = argparse.ArgumentParser()
     Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
-    Parser.add_argument('--DataPath', default="./Data/Train/Set1", help='Path to the dataset folder to stitch')
+    Parser.add_argument('--DataPath', default="../Data/Train/Set1", help='Path to the dataset folder to stitch')
     # TODO: tune these thresholds
     Parser.add_argument('--MatchRatioThreshold', default=1)
     Parser.add_argument('--TauThreshold', default=1)
-    Parser.add_argument('--RansacNMax', default=1)
+    Parser.add_argument('--RansacMaxIterations', default=1)
 
     Args = Parser.parse_args()
     NumFeatures = Args.NumFeatures
     DataPath = Args.DataPath
     ratio_threshold = Args.MatchRatioThreshold
     tau_threshold = Args.TauThreshold
-    ransac_N_max = Args.RansacNMax
+    ransac_N_max = Args.RansacMaxIterations
 
     """
     Read a set of images for Panorama stitching
     """
     img_paths = glob.glob(os.path.join(DataPath, "*.jpg"))
+    print(img_paths)
     imgs = [cv2.imread(path) for path in img_paths]
     img = imgs[0]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     """
     Corner Detection
     Save Corner detection output as corners.png
     """
-    # corners = cv2.cornerHarris(img, ...)
+    ### corner harris
+    corner_score = cv2.cornerHarris(gray, 4, 5, 0.04)
+
+    #### goodFeaturesToTrack
+    # corners = cv2.goodFeaturesToTrack(gray,1000,0.1,10)
+    # corners = np.int0(corners)
+    # print(corners.shape, gray.shape, corners)
+    
     # Draw the corners
-    # cv2.imwrite("corners.png", corners_img)
+    # print(corners)
+    corners_img_viz = img
+    corners_img_viz[corner_score>0.01*corner_score.max()]=[0,0,255]
+
+    corners = np.where(corner_score>0.01*corner_score.max())
+    # for i in corners:
+    #     x,y = i.ravel()
+    #     cv2.drawMarker(corners_img_viz,(x,y),[0, 0, 255], cv2.MARKER_CROSS, 10, 1)
+    
+    cv2.imshow("corners", corners_img_viz)
+    cv2.waitKey()
+    # cv2.imwrite("corners.png", corners_img_viz)
+
 
     """
     Perform ANMS: Adaptive Non-Maximal Suppression
     Save ANMS output as anms.png
     """
-    # Implement ANMS algorithm
-    # Initialize r_i = infinity for i = [1 : N_strong]
-    # for i = [1 : N_strong] do
-    #   for j = [1 : N_strong] do
-    #       if (C_img(y_j, x_j) > C_img(y_i, x_i)) then
-    #           ED = (x_j - x_i)^2 + (y_j - y_i)^2
-    #       end
-    #       if ED < r_i then
-    #           r_i = ED
-    #       end
-    #   end
-    # end
-    # Sort r_i in descending order and pick top N_best points
+    def anms(corners_img, n_best):
+        """
+        corner_img: img with corner scores
+        n_best: number of best corners
+        returns n_best corners
+        """
+        # get imregionalmax  res
+        regional_max = maximum_filter(corners_img, size=50)
+        regional_max_mask = (corners_img == regional_max).astype(np.uint8)
 
+        kernel = np.ones((3, 3))
+        new_maxima = convolve(regional_max_mask, kernel)
+        new_maxima = np.where(new_maxima > 1, 0, new_maxima)
+
+        print(new_maxima)
+
+        new_maxima = new_maxima * regional_max_mask
+
+        new_maxima[new_maxima==1] = 255
+        
+        # cv2.imshow("regmax", new_maxima)
+        # cv2.waitKey()
+
+        n_strong = np.where(new_maxima == 255)
+
+        #get n best
+        r_vec = []
+        X,Y = n_strong[0],n_strong[1]
+        print(len(X))
+        
+        for i in range(len(X)):
+            r = np.inf
+            # print(n_strong[i],n_strong[i][0] )
+            for j in range(len(Y)):
+                ed = 0
+                if(corners_img[X[j],Y[j]] > corners_img[X[i],Y[i]]):
+                    ed = (X[j] - X[i])**2 + (Y[j] - Y[i])**2
+                    # print(ed)
+                if(ed<r):
+                    r=ed
+            if(r==np.inf):
+                r=0
+            r_vec.append((i,r))
+            # print(i)
+        n_best_index_vec = sorted(r_vec, key=lambda x: x[1], reverse=True)
+        # print(n_best_index_vec[:n_best])
+        n_best_vec = []
+        for i in range(min(n_best,len(n_best_index_vec))):
+            n_best_vec.append([X[n_best_index_vec[i][0]], Y[n_best_index_vec[i][0]]])
+        print(n_best_vec)
+
+        anms_vis = img
+        for i in range(len(n_best_vec)):
+            cv2.drawMarker(anms_vis, n_best_vec[i],  [0, 255, 0], cv2.MARKER_CROSS, 10, 1)
+
+        cv2.imshow("anms", anms_vis)
+        cv2.waitKey()
+        
+        return n_best_vec
+
+
+    anms(corner_score, 200)
     """
     Feature Descriptors
     Save Feature Descriptor output as FD.png
