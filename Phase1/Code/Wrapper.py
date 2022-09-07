@@ -214,24 +214,25 @@ def main():
                     ssd_second_best = ssd_best
                     ssd_best = (i,j,ssd)
             if(ssd_best[2]/ssd_second_best[2]<ratio_threshold):
-                feature_matches.append([ssd_best[0],ssd_best[1]])
+                feature_matches.append((ssd_best[0],ssd_best[1]))
         # print(feature_matches)
 
-        # if img1 != None and img2 != None:
-        matching_img = np.hstack([img1, img2])
-        n_best1 = np.array(n_best1).astype(float)
-        n_best2 = np.array(n_best2).astype(float)
-        matching_img = cv2.drawMatches(img1, [cv2.KeyPoint(y, x, 3) for x, y in n_best1.astype(float)],
-                        img2, [cv2.KeyPoint(y, x, 3) for x, y in n_best2.astype(float)],
-                        [cv2.DMatch(m1, m2, 0) for m1, m2 in feature_matches], matching_img, (0, 255, 0), (0, 0, 255))
-        # cv2.imshow("matching",matching_img)
-        # cv2.waitKey()
-        # cv2.imwrite("matching.png", matching_img)
+        if img1 != None and img2 != None:
+            matching_img = np.hstack([img1, img2])
+            n_best1 = np.array(n_best1).astype(float)
+            n_best2 = np.array(n_best2).astype(float)
+            matching_img = cv2.drawMatches(img1, [cv2.KeyPoint(y, x, 3) for x, y in n_best1.astype(float)],
+                            img2, [cv2.KeyPoint(y, x, 3) for x, y in n_best2.astype(float)],
+                            [cv2.DMatch(m1, m2, 0) for m1, m2 in feature_matches], matching_img, (0, 255, 0), (0, 0, 255))
+            # cv2.imshow("matching",matching_img)
+            # cv2.waitKey()
+            # cv2.imwrite("matching.png", matching_img)
+        return feature_matches
         
         
-    vec1, n_best1 = feature_wrapper(img1)
-    vec2, n_best2 = feature_wrapper(img2)
-    get_feature_matches(vec1, vec2, 0.75, n_best1, n_best2, img1, img2)
+    vec1, n_best_features1 = feature_wrapper(img1)
+    vec2, n_best_features2 = feature_wrapper(img2)
+    matches = get_feature_matches(vec1, vec2, 0.75, n_best_features1, n_best_features2)
 
     """
     Refine: RANSAC, Estimate Homography
@@ -243,7 +244,34 @@ def main():
     # 4) Repeat steps 1-3 until N_max iterations (or found 90% of total pts as inliers)
     # 5) Keep largest set of inliers that was found in the above steps/loop
     # 6) Re-compute least-squares Homography estimate on all inliers
-    def ransac()
+    def ransac(features1_all, features2_all, match_vec, tau):
+        match_vec = np.array(match_vec)#[indices.astype(int)]
+        print(match_vec[:,0])
+        features1 = features1_all[match_vec[:,0]]
+        features2 = features2_all[match_vec[:,1]]
+
+        pts = np.random.randint(0, len(match_vec), size=4)
+        #get the feature pairs from the above random  points
+
+        f1 = np.float32([features1[x] for x in pts ])
+        f2 = np.float32([features2[x] for x in pts ])
+        
+        #compute H
+        H = cv2.getPerspectiveTransform(f1,f2)
+        feature_arr = features1.reshape(-1,1,2).astype(np.float32)
+
+        Hp_ = cv2.perspectiveTransform(feature_arr, H).reshape(-1,2)
+        # print(Hp_)
+        # print(H)
+
+        SSD = ((features2-Hp_)**2).sum(axis=1)
+        inliers = np.where(SSD<tau)
+        print(inliers, inliers.shape)
+
+
+
+    ransac(n_best_features1,n_best_features2,matches,1)
+
 
     """
     Image Warping + Blending
