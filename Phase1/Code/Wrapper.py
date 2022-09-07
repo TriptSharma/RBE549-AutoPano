@@ -244,33 +244,70 @@ def main():
     # 4) Repeat steps 1-3 until N_max iterations (or found 90% of total pts as inliers)
     # 5) Keep largest set of inliers that was found in the above steps/loop
     # 6) Re-compute least-squares Homography estimate on all inliers
-    def ransac(features1_all, features2_all, match_vec, tau):
+    def ransac(features1_all, features2_all, match_vec, tau=100, n_max=1000, inlier_percent=0.9, img1=None, img2=None):
         match_vec = np.array(match_vec)#[indices.astype(int)]
-        print(match_vec[:,0])
-        features1 = features1_all[match_vec[:,0]]
-        features2 = features2_all[match_vec[:,1]]
+        # print(features1_all)
+        img1_idx = [x[0] for x in match_vec]
+        img2_idx = [x[1] for x in match_vec]
+        features1 = np.array([ features1_all[i] for i in img1_idx ])
+        features2 = np.array([ features2_all[i] for i in img2_idx ])
+        # print(features1, features2)
 
-        pts = np.random.randint(0, len(match_vec), size=4)
-        #get the feature pairs from the above random  points
+        global_inlier_percent = 0
+        global_inliers = []
+        n=0
+        while n < n_max:
+            
+            pts = np.random.randint(0, len(match_vec), size=4)
+            #get the feature pairs from the above random  points
 
-        f1 = np.float32([features1[x] for x in pts ])
-        f2 = np.float32([features2[x] for x in pts ])
+            f1 = np.float32([features1[x] for x in pts ])
+            f2 = np.float32([features2[x] for x in pts ])
+            
+            #compute H
+            H = cv2.getPerspectiveTransform(f1,f2)
+            feature_arr = features1.reshape(-1,1,2).astype(np.float32)
+
+            Hp_ = cv2.perspectiveTransform(feature_arr, H).reshape(-1,2)
+            # print(Hp_)
+            # print(H)
+
+            SSD = ((features2-Hp_)**2).sum(axis=1)
+            inliers = np.where(SSD<tau)[0]
+            # print(inliers)
+            local_inlier_percent = inliers.shape[0]/features2.shape[0]
+            
+            if(local_inlier_percent>global_inlier_percent):
+                global_inlier_percent = local_inlier_percent
+                global_inliers = inliers
+
+            if(global_inlier_percent > inlier_percent):
+                # stop the loop
+                break
+
+            n+=1
+
+        #compute the final Homography matrix using all the inliers
+        # print(global_inliers, global_inlier_percent)
+        inliers1 = np.array([ features1[i] for i in global_inliers ]).astype(np.float32)
+        inliers2 = np.array([ features2[i] for i in global_inliers ]).astype(np.float32)
         
-        #compute H
-        H = cv2.getPerspectiveTransform(f1,f2)
-        feature_arr = features1.reshape(-1,1,2).astype(np.float32)
-
-        Hp_ = cv2.perspectiveTransform(feature_arr, H).reshape(-1,2)
-        # print(Hp_)
+        H, _ = cv2.findHomography(inliers1, inliers2)
         # print(H)
+    
+        if img1 is not None and img2 is not None:
+            matching_img = np.hstack([img1, img2])
+            matching_img = cv2.drawMatches(img1, [cv2.KeyPoint(y, x, 3) for x, y in features1.astype(float)],
+                            img2, [cv2.KeyPoint(y, x, 3) for x, y in features2.astype(float)],
+                            [cv2.DMatch(m1, m1, 0) for m1 in global_inliers], matching_img, (0, 255, 0), (0, 0, 255))
+            cv2.imshow("ransac",matching_img)
+            cv2.waitKey()
+            cv2.imwrite("ransac.png", matching_img)
 
-        SSD = ((features2-Hp_)**2).sum(axis=1)
-        inliers = np.where(SSD<tau)
-        print(inliers, inliers.shape)
 
+        return H, [inliers1,inliers2]
 
-
-    ransac(n_best_features1,n_best_features2,matches,1)
+    H, inliers = ransac(n_best_features1,n_best_features2,matches,100)
 
 
     """
