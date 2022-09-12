@@ -15,7 +15,7 @@ import sys
 import torch
 import numpy as np
 import torch.nn.functional as F
-import kornia  # You can use this to get the transform and warp in this project
+# import kornia  # You can use this to get the transform and warp in this project
 import pytorch_lightning as pl
 
 # Don't generate pyc codes

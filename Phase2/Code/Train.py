@@ -257,7 +257,7 @@ def TrainOperation(
     ###############################################
     # Fill your optimizer of choice here!
     ###############################################
-    Optimizer = torch.optim.Adam(model.parameters(), lr=.001)
+    Optimizer = torch.optim.SGD(model.parameters(), lr=.005)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -282,11 +282,11 @@ def TrainOperation(
             # Predict output with forward pass
             PredicatedCoordinatesBatch = model(I1Batch)
             LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
-            Losses.append(LossThisBatch)
+            Losses.append(LossThisBatch.cpu().detach().numpy())
 
-            Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
+            Optimizer.zero_grad()
 
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
@@ -345,25 +345,25 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="./Data/",
+        default="/media/karterk/HDD/Classes/RBE549_CV/",
         help="Base path of images",
     )
 
     Parser.add_argument(
         "--TrainImagesFolder",
-        default="/Users/kskrueger/Projects/RBE549_AutoPano/Phase2/Data/Train/",
+        default="/media/karterk/HDD/Classes/RBE549_CV/Data/Train/",
         help="Folder of Training Images",
     )
 
     Parser.add_argument(
         "--ValImagesFolder",
-        default="/Users/kskrueger/Projects/RBE549_AutoPano/Phase2/Data/Val/",
+        default="/media/karterk/HDD/Classes/RBE549_CV/Data/Val/",
         help="Folder of Validation Images",
     )
 
     Parser.add_argument(
         "--CheckPointPath",
-        default="../Checkpoints/",
+        default="/media/karterk/HDD/Classes/RBE549_CV/Data/Checkpoints/",
         help="Path to save Checkpoints, Default: ../Checkpoints/",
     )
 
@@ -375,7 +375,7 @@ def main():
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=50,
+        default=200,
         help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
@@ -393,12 +393,12 @@ def main():
     Parser.add_argument(
         "--LoadCheckPoint",
         type=int,
-        default=0,
+        default=1,
         help="Load Model from latest Checkpoint from CheckPointsPath?, Default:0",
     )
     Parser.add_argument(
         "--LogsPath",
-        default="Logs/",
+        default="Logs2/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -426,7 +426,7 @@ def main():
 
     # Find Latest Checkpoint File
     if LoadCheckPoint == 1:
-        LatestFile = FindLatestModel(CheckPointPath)
+        LatestFile = "49model" # FindLatestModel(CheckPointPath)
     else:
         LatestFile = None
 
