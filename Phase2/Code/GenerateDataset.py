@@ -7,7 +7,8 @@ paths = sorted(glob.glob("../Data/Train/*.jpg"))
 # out = np.zeros((len(paths), 5, 2))
 SAMPLE_PER_IMAGE = 5
 input_data = np.zeros((len(paths), SAMPLE_PER_IMAGE, 2, 128, 128, 3), dtype=np.uint8)
-label_data = np.zeros((len(paths), SAMPLE_PER_IMAGE, 1, 3, 3), dtype=np.float32)
+label_data_H = np.zeros((len(paths), SAMPLE_PER_IMAGE, 3, 3), dtype=np.float32)
+label_data = np.zeros((len(paths), SAMPLE_PER_IMAGE, 2, 4, 2), dtype=np.float32)
 print("Input Size", input_data.__sizeof__())
 print("Output Size", label_data.__sizeof__())
 
@@ -55,7 +56,9 @@ while i < len(paths):
 
         input_data[i, j, 0] = patch
         input_data[i, j, 1] = patch_warp
-        label_data[i, j, 0] = warp_H
+        label_data_H[i, j] = warp_H
+        label_data[i, j, 0] = corners
+        label_data[i, j, 1] = corners_warp
         pair = np.hstack((patch, patch_warp))
         rows.append(pair)
         j += 1
@@ -70,4 +73,5 @@ while i < len(paths):
 
 np.save("training_data.npy", input_data)
 np.save("training_labels.npy", label_data)
+np.save("training_labels_H.npy", label_data_H)
 print("Data saved!")
