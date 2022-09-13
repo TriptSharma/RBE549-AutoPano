@@ -23,7 +23,8 @@ import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms
 from torch.optim import AdamW
-from Network.Network import HomographyModel
+from torch.optim.lr_scheduler import ExponentialLR
+from Network.Network import HomographyModel, LossFn
 import cv2
 import sys
 import os
@@ -48,8 +49,11 @@ from termcolor import colored, cprint
 import math as m
 from tqdm import tqdm
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using {device} device")
 
-def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize):
+
+def GenerateBatch(BasePath, TrainData, TrainCoordinates, ImageSize, MiniBatchSize):
     """
     Inputs:
     BasePath - Path to COCO folder without "/" at the end
@@ -69,20 +73,37 @@ def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatc
     ImageNum = 0
     while ImageNum < MiniBatchSize:
         # Generate random image
-        RandIdx = random.randint(0, len(DirNamesTrain) - 1)
+        RandIdx = random.randint(0, TrainData.shape[0] - 1)
 
-        RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
+        # RandImageName = BasePath + os.sep + TrainData[RandIdx] + ".jpg"
         ImageNum += 1
 
         ##########################################################
         # Add any standardization or data augmentation here!
         ##########################################################
-        I1 = np.float32(cv2.imread(RandImageName))
+        I1 = TrainData[RandIdx]
         Coordinates = TrainCoordinates[RandIdx]
-
+        # mean1, std1 = I1[0].mean([1,2]), I1[0].std([1,2])
+        # mean2, std2 = I1[1].mean([1,2]), I1[1].std([1,2])
+        
+        # print(std1,std2)
+        # transform_norm1 = transforms.Compose([
+        #     transforms.Normalize(mean1, std1)
+        # ])
+        # transform_norm2 = transforms.Compose([
+        #     transforms.Normalize(mean2, std2)
+        # ])
+        
+        img1 = I1[0]/255
+        img2 = I1[1]/255
+        
+        I1 = torch.concat((img1,img2), dim=2)
+        I1 = I1.permute((2,0,1))
+        I1 = I1.to(device)
+        
         # Append All Images and Mask
-        I1Batch.append(torch.from_numpy(I1))
-        CoordinatesBatch.append(torch.tensor(Coordinates))
+        I1Batch.append(I1)
+        CoordinatesBatch.append(torch.tensor(Coordinates).to(device))
 
     return torch.stack(I1Batch), torch.stack(CoordinatesBatch)
 
@@ -100,8 +121,10 @@ def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
 
 
 def TrainOperation(
-    DirNamesTrain,
+    TrainData,
     TrainCoordinates,
+    ValData,
+    ValCoordinates,
     NumTrainSamples,
     ImageSize,
     NumEpochs,
@@ -134,12 +157,14 @@ def TrainOperation(
     Saves Trained network in CheckPointPath and Logs to LogsPath
     """
     # Predict output with forward pass
-    model = HomographyModel()
+    model = HomographyModel().to(device)
 
     ###############################################
     # Fill your optimizer of choice here!
     ###############################################
-    Optimizer = ...
+    Optimizer = AdamW(model.parameters(), lr=0.005)
+    scheduler = ExponentialLR(Optimizer, gamma=0.9)
+    lossFn = LossFn()
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -159,12 +184,12 @@ def TrainOperation(
         NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
         for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
             I1Batch, CoordinatesBatch = GenerateBatch(
-                BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize
+                BasePath, TrainData, TrainCoordinates, ImageSize, MiniBatchSize
             )
 
             # Predict output with forward pass
             PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            LossThisBatch = lossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
 
             Optimizer.zero_grad()
             LossThisBatch.backward()
@@ -192,15 +217,30 @@ def TrainOperation(
                 )
                 print("\n" + SaveName + " Model Saved...")
 
-            result = model.validation_step(Batch)
-            # Tensorboard
-            Writer.add_scalar(
-                "LossEveryIter",
-                result["val_loss"],
-                Epochs * NumIterationsPerEpoch + PerEpochCounter,
+        #update scheduler after computing loss for each epoch
+        scheduler.step()
+
+        train_X, train_Y = GenerateBatch(
+                BasePath, TrainData, TrainCoordinates, ImageSize, MiniBatchSize
             )
-            # If you don't flush the tensorboard doesn't update until a lot of iterations!
-            Writer.flush()
+        val_X, val_Y = GenerateBatch(
+                BasePath, ValData, ValCoordinates, ImageSize, MiniBatchSize
+            )
+        result_val = model.validation_step(val_X,val_Y)
+        result_train = model.validation_step(train_X,train_Y)
+        # Tensorboard
+        Writer.add_scalar(
+            "Validation Loss",
+            result_val["val_loss"],
+            Epochs,
+        )
+        Writer.add_scalar(
+            "Training Loss",
+            result_train["val_loss"],
+            Epochs,
+        )
+        # If you don't flush the tensorboard doesn't update until a lot of iterations!
+        Writer.flush()
 
         # Save model every epoch
         SaveName = CheckPointPath + str(Epochs) + "model.ckpt"
@@ -227,7 +267,7 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
+        default="../Data",
         help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
     )
     Parser.add_argument(
@@ -244,7 +284,7 @@ def main():
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=50,
+        default=10,
         help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
@@ -256,7 +296,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=1,
+        default=64,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
@@ -283,11 +323,13 @@ def main():
 
     # Setup all needed parameters including file reading
     (
-        DirNamesTrain,
+        TrainData,
+        ValData,
         SaveCheckPoint,
         ImageSize,
         NumTrainSamples,
         TrainCoordinates,
+        ValCoordinates,
         NumClasses,
     ) = SetupAll(BasePath, CheckPointPath)
 
@@ -301,8 +343,10 @@ def main():
     PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
 
     TrainOperation(
-        DirNamesTrain,
+        TrainData,
         TrainCoordinates,
+        ValData,
+        ValCoordinates,
         NumTrainSamples,
         ImageSize,
         NumEpochs,

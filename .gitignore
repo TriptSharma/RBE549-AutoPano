@@ -1,3 +1,7 @@
 data/
 Data/
 .idea/
+*.png
+*.ckpt
+*events.out.tfevents*
+*.pyc
