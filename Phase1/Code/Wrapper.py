@@ -25,11 +25,12 @@ import os
 # def main():
 # Add any Command Line arguments here
 from matplotlib import pyplot as plt
+from scipy.ndimage import maximum_filter, convolve
 
 Parser = argparse.ArgumentParser()
 Parser.add_argument('--NumFeatures', default=1000,
                     help='Number of best features to extract from each image, Default:1000')
-Parser.add_argument('--DataPath', default="../Data/Train/Set2", help='Path to the dataset folder to stitch')
+Parser.add_argument('--DataPath', default="../Data/Test/TestSet2_easy", help='Path to the dataset folder to stitch')
 # TODO: tune these thresholds
 Parser.add_argument('--MatchRatioThreshold', default=.75)
 Parser.add_argument('--TauThreshold', default=160)
@@ -61,20 +62,21 @@ Save Corner detection output as corners.png
 
 
 def find_corners(img_gray, img=None):
-    corners = cv2.goodFeaturesToTrack(img_gray, N_corners, .005, 5)
-    corners = corners[:, 0, :].astype(int)
+    corner_score = cv2.cornerHarris(img_gray, 4, 5, 0.04)
 
-    # corners = cv2.cornerHarris(img_gray, 3, 3, .001)
-    # imgOut = img.copy()
-    # imgOut[corners > 0.005*corners.max()] = [0,0,255]
+    #### goodFeaturesToTrack
+    # corners = cv2.goodFeaturesToTrack(gray,1000,0.1,10)
+    # corners = np.int0(corners)
+    # print(corners.shape, gray.shape, corners)
 
     # Draw the corners
     if img is not None:
-        corners_img = img.copy()
-        for x, y in corners:
-            cv2.circle(corners_img, (x, y), 2, (0, 255, 0), -1)
-        cv2.imwrite("corners.png", corners_img)
-    return corners
+        corners_img_viz = img.copy()
+        corners_img_viz[corner_score > 0.005 * corner_score.max()] = [0, 0, 255]
+        # cv2.imshow("corners", corners_img_viz)
+        # cv2.waitKey()
+        cv2.imwrite("corners.png", corners_img_viz)
+    return corner_score
 
 
 """
@@ -85,24 +87,47 @@ Save ANMS output as anms.png
 
 def anms(corners, img=None):
     # Implement ANMS algorithm
-    r = [np.inf for i in range(len(corners))]
-    for i in range(len(corners)):
-        for j in range(len(corners)):
-            if j > i:
-                ED = (corners[j, 0] - corners[i, 0]) ** 2 + (corners[j, 1] - corners[i, 1]) ** 2
-                if ED < r[i]:
-                    r[i] = ED
+    # get imregionalmax  res
+    regional_max = maximum_filter(corners, size=50)
+    regional_max_mask = (corners == regional_max).astype(np.uint8)
 
-    # Sort r_i in descending order and pick top N_best points
-    r_i_sorted = np.argsort(r)
-    corners_best = corners[r_i_sorted[:N_best]]
+    kernel = np.ones((3, 3))
+    new_maxima = convolve(regional_max_mask, kernel)
+    new_maxima[new_maxima > 1] = 0
+    # new_maxima = np.where(new_maxima > 1, 0, new_maxima)
+
+    new_maxima = new_maxima * regional_max_mask
+    # new_maxima *= 255
+    n_strong = np.where(new_maxima)
+
+    # get n best
+    r_vec = []
+    X, Y = n_strong[0], n_strong[1]
+
+    for i in range(len(X)):
+        r = np.inf
+        for j in range(len(Y)):
+            ed = None
+            if (corners[X[j], Y[j]] > corners[X[i], Y[i]]):
+                ed = (X[j] - X[i]) ** 2 + (Y[j] - Y[i]) ** 2
+            if (ed is not None and ed < r):
+                r = ed
+        r_vec.append((i, r))
+    n_best_index_vec = sorted(r_vec, key=lambda x: x[1], reverse=True)
+
+    n_best_vec = []
+    for i in range(min(N_best, len(n_best_index_vec))):
+        n_best_vec.append([Y[n_best_index_vec[i][0]], X[n_best_index_vec[i][0]]])
 
     if img is not None:
-        anms_img = img.copy()
-        for x, y in corners_best:
-            cv2.circle(anms_img, (x, y), 2, (0, 255, 0), -1)
-        cv2.imwrite("anms.png", anms_img)
-    return corners_best
+        anms_vis = img
+        for pt in n_best_vec:
+            cv2.drawMarker(anms_vis, (pt[0], pt[1]), [0, 255, 0], cv2.MARKER_CROSS, 10, 1)
+        # cv2.imshow("anms", anms_vis)
+        # cv2.waitKey()
+        cv2.imwrite("anms.png", anms_vis)
+
+    return np.array(n_best_vec)
 
 
 """
@@ -296,8 +321,8 @@ def stitch(img1, img2, H1, H2):
     return img_combo
 
 
-corners = [find_corners(img_gray) for img_gray in imgs_gray]
-best_corners = [anms(cs) for cs in corners]
+corners = [find_corners(img_gray, img) for img_gray, img in zip(imgs_gray, imgs)]
+best_corners = [anms(cs, img) for cs, img in zip(corners, imgs)]
 corners_descriptors = [get_descriptors(img_gray, corners_best) for img_gray, corners_best in
                        zip(imgs_gray, best_corners)]
 
@@ -327,12 +352,12 @@ for i, img_gray_i in enumerate(imgs_gray):
     for j, img_gray_j in enumerate(imgs_gray):
         if i == j:# or (i, j) in pairs.keys() or (j, i) in pairs.keys():
             continue
-        matches = match(corners_descriptors[i], corners_descriptors[j])
+        matches = match(corners_descriptors[i], corners_descriptors[j], best_corners[i], best_corners[j], imgs[i], imgs[j])
         if (len(matches) / ((len(best_corners[i]) + len(best_corners[j]))/2)) < .2:
             continue
         ransac_H, inliers = ransac(best_corners[i], best_corners[j], matches, img_gray_i, img_gray_j)
         # print('det', (i, j), np.linalg.det(ransac_H))
-        if np.linalg.det(ransac_H) < .3:
+        if ransac_H is None or np.linalg.det(ransac_H) < .3:
             # print("Bad transform", np.linalg.det(ransac_H))
             continue
         match_score = (len(inliers) / len(matches))
@@ -356,35 +381,35 @@ for i in range(connectivity_matrix.shape[0]):
         best_core_img = i
         best_score = score
 
-# known_imgs = [best_core_img]
-# pairs = [(best_core_img, best_core_img)]
-# unknown_imgs = set(range(connectivity_matrix.shape[1]))
-# unknown_imgs.remove(best_core_img)
-#
-# while len(unknown_imgs) > 0:
-#     for j in unknown_imgs.copy():
-#         if np.count_nonzero(connectivity_matrix[:, j]) < 1 and j in unknown_imgs:
-#             unknown_imgs.remove(j)
-#             continue
-#         if np.count_nonzero(connectivity_matrix[known_imgs, j]) < 1 or j in [p[0] for p in pairs]:
-#             continue
-#         best_starter = np.argsort(connectivity_matrix[known_imgs, j])[-1]
-#         best_starter = known_imgs[best_starter]
-#         print(best_starter, "->", j)
-#         known_imgs.append(j)
-#         unknown_imgs.remove(j)
-#         pairs.append((best_starter, j))
-#
-# running_H = np.eye(3)
-# for j in range(connectivity_matrix.shape[1]):
-#     if j == best_core_img:
-#         continue
+known_imgs = [best_core_img]
+pairs = [(best_core_img, best_core_img)]
+unknown_imgs = set(range(connectivity_matrix.shape[1]))
+unknown_imgs.remove(best_core_img)
+
+while len(unknown_imgs) > 0:
+    for j in unknown_imgs.copy():
+        if np.count_nonzero(connectivity_matrix[:, j]) < 1 and j in unknown_imgs:
+            unknown_imgs.remove(j)
+            continue
+        if np.count_nonzero(connectivity_matrix[known_imgs, j]) < 1 or j in [p[0] for p in pairs]:
+            continue
+        best_starter = np.argsort(connectivity_matrix[known_imgs, j])[-1]
+        best_starter = known_imgs[best_starter]
+        print(best_starter, "->", j)
+        known_imgs.append(j)
+        unknown_imgs.remove(j)
+        pairs.append((best_starter, j))
+
+running_H = np.eye(3)
+for j in range(connectivity_matrix.shape[1]):
+    if j == best_core_img:
+        continue
 
 combos = []
 last_H = np.eye(3)
 
 # last_H = Ht.dot(np.eye(3))
-center = len(imgs_gray) // 2
+center = best_core_img
 for i in range(center, len(imgs_gray)-1):
     j = i+1
 
