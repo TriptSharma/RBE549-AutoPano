@@ -30,7 +30,7 @@ from scipy.ndimage import maximum_filter, convolve
 Parser = argparse.ArgumentParser()
 Parser.add_argument('--NumFeatures', default=1000,
                     help='Number of best features to extract from each image, Default:1000')
-Parser.add_argument('--DataPath', default="../Data/Test/TestSet2_easy", help='Path to the dataset folder to stitch')
+Parser.add_argument('--DataPath', default="../Data/Test/TestSet2", help='Path to the dataset folder to stitch')
 # TODO: tune these thresholds
 Parser.add_argument('--MatchRatioThreshold', default=.75)
 Parser.add_argument('--TauThreshold', default=160)
@@ -120,7 +120,7 @@ def anms(corners, img=None):
         n_best_vec.append([Y[n_best_index_vec[i][0]], X[n_best_index_vec[i][0]]])
 
     if img is not None:
-        anms_vis = img
+        anms_vis = img.copy()
         for pt in n_best_vec:
             cv2.drawMarker(anms_vis, (pt[0], pt[1]), [0, 255, 0], cv2.MARKER_CROSS, 10, 1)
         # cv2.imshow("anms", anms_vis)
@@ -134,8 +134,6 @@ def anms(corners, img=None):
 Feature Descriptors
 Save Feature Descriptor output as FD.png
 """
-
-
 def get_descriptors(img_gray, corners_best):
     # Generate feature descriptors from around 41x41 patch around each feature
     # Gaussian blur (cv2.GaussianBlur(...)) for each feature patch
@@ -371,47 +369,153 @@ for i, img_gray_i in enumerate(imgs_gray):
         # else:
             # print("no match", (i, j), match_score)
 
-best_core_img = 0
-best_score = 0
-for i in range(connectivity_matrix.shape[0]):
-    if np.count_nonzero(connectivity_matrix[i, :]) < 2:
-        continue
-    score = np.sum(connectivity_matrix[i, :])
-    if score > best_score:
-        best_core_img = i
-        best_score = score
 
-known_imgs = [best_core_img]
-pairs = [(best_core_img, best_core_img)]
-unknown_imgs = set(range(connectivity_matrix.shape[1]))
-unknown_imgs.remove(best_core_img)
+#### REMOVE
 
-while len(unknown_imgs) > 0:
-    for j in unknown_imgs.copy():
-        if np.count_nonzero(connectivity_matrix[:, j]) < 1 and j in unknown_imgs:
-            unknown_imgs.remove(j)
-            continue
-        if np.count_nonzero(connectivity_matrix[known_imgs, j]) < 1 or j in [p[0] for p in pairs]:
-            continue
-        best_starter = np.argsort(connectivity_matrix[known_imgs, j])[-1]
-        best_starter = known_imgs[best_starter]
-        print(best_starter, "->", j)
-        known_imgs.append(j)
-        unknown_imgs.remove(j)
-        pairs.append((best_starter, j))
+visited = np.zeros((len(imgs_gray), len(imgs_gray)))
+weights = connectivity_matrix
 
-running_H = np.eye(3)
-for j in range(connectivity_matrix.shape[1]):
-    if j == best_core_img:
-        continue
+graph = {}
+for r in range(len(weights)):
+    lst = []
+    for c in range(len(weights[r])):
+        if weights[r, c] > 0:
+            lst.append(c)
+    graph[r] = lst
+
+visited = set() # Set to keep track of visited nodes of graph.
+
+paths = []
+def dfs(visited, graph, node, path0, last_node, path_weight):  #function for dfs
+    path = path0.copy()
+    if node not in visited:
+        # print(node)
+        path.append((last_node, node))
+        path_weight += weights[last_node, node]
+
+        visited.add(node)
+
+        for neighbour in graph[node]:
+            dfs(visited, graph, neighbour, path, node, path_weight)
+    else:
+        paths.append((path, path_weight))
+
+
+for start_r in range(len(imgs_gray)):
+    visited = set()
+    dfs(visited, graph, 0, [], 0, 0)
+
+
+# print("paths", paths)
+
+longest_path, max_score = max(paths, key=lambda x: len(x[0]))
+
+center = longest_path[len(longest_path)//2][0]
+
+longest_path = np.array(longest_path)
+### REMOVE
+
+
+
+# for row in range(len(imgs_gray)):
+#
+# paths = []
+# def recurse(r, c, path, path_weight):
+#     # paths = []
+#     # for col in range(len(imgs_gray)):
+#     if r < 0 or r >= visited.shape[0] or c < 0 or c >= visited.shape[1] or visited[r, c]:
+#         return path, path_weight
+#
+#     if r == c:
+#         paths.append(path)
+#         return path, path_weight
+#     if weights[r, c] < 1:
+#         paths.append(path)
+#         return path, path_weight
+#     if visited[r, c]:
+#         paths.append(path)
+#         return path, path_weight
+#     visited[r, c] = 1
+#     visited[c, r] = 1  # TODO: maybe?
+#
+#     path.append((r, c))
+#     path_weight += weights[r, c]
+#
+#     [recurse(c, 0, path, path_weight) for c in range(len(imgs_gray))]
+#
+#
+#
+#
+#
+#
+#
+# best_core_img = 0
+# best_score = 0
+# for i in range(connectivity_matrix.shape[0]):
+#     if np.count_nonzero(connectivity_matrix[i, :]) < 2:
+#         continue
+#     score = np.sum(connectivity_matrix[i, :])
+#     if score > best_score:
+#         best_core_img = i
+#         best_score = score
+#
+# known_imgs = [best_core_img]
+# pairs = [(best_core_img, best_core_img)]
+# unknown_imgs = set(range(connectivity_matrix.shape[1]))
+# unknown_imgs.remove(best_core_img)
+#
+#
+#
+# while len(unknown_imgs) > 0:
+#     for j in unknown_imgs.copy():
+#         if np.count_nonzero(connectivity_matrix[:, j]) < 1 and j in unknown_imgs:
+#             unknown_imgs.remove(j)
+#             continue
+#         if np.count_nonzero(connectivity_matrix[known_imgs, j]) < 1 or j in [p[0] for p in pairs]:
+#             continue
+#         best_starter = np.argsort(connectivity_matrix[known_imgs, j])[-1]
+#         best_starter = known_imgs[best_starter]
+#         print(best_starter, "->", j)
+#         known_imgs.append(j)
+#         unknown_imgs.remove(j)
+#         pairs.append((best_starter, j))
+#
+# running_H = np.eye(3)
+# for j in range(connectivity_matrix.shape[1]):
+#     if j == best_core_img:
+#         continue
 
 combos = []
 last_H = np.eye(3)
 
 # last_H = Ht.dot(np.eye(3))
-center = best_core_img
-for i in range(center, len(imgs_gray)-1):
-    j = i+1
+# center = 0
+
+# for i in range(center, len(imgs_gray)-1):
+# for i, j in longest_path[center:]:
+#     # j = i+1
+#
+#     # H2[0, -1] += 0
+#     # H2[1, -1] += 0
+#     # H1 = Ht.dot(H1)
+#     # H2 = Ht.dot(H2)
+#
+#     next_H = np.linalg.inv(connectivity_transforms[i, j]).dot(last_H)
+#
+#     combos.append(stitch(imgs[i], imgs[j], last_H, next_H))
+#     last_H = next_H
+#
+# last_H = np.eye(3)
+# for i, j in reversed(longest_path[:center]):
+#     # j = i-1
+#     next_H = np.linalg.inv(connectivity_transforms[i, j]).dot(last_H)
+#
+#     combos.insert(0, stitch(imgs[i], imgs[j], last_H, next_H))
+#     last_H = next_H
+
+
+for i, j in longest_path:
+    # j = i+1
 
     # H2[0, -1] += 0
     # H2[1, -1] += 0
@@ -423,23 +527,24 @@ for i in range(center, len(imgs_gray)-1):
     combos.append(stitch(imgs[i], imgs[j], last_H, next_H))
     last_H = next_H
 
-last_H = np.eye(3)
-for i in range(center, 0, -1):
-    j = i-1
-    next_H = np.linalg.inv(connectivity_transforms[i, j]).dot(last_H)
-
-    combos.insert(0, stitch(imgs[i], imgs[j], last_H, next_H))
-    last_H = next_H
-
 
 
 # img_combo01 = check_and_stitch(0, 3)
 # cv2.imwrite("mypano_01.png", img_combo01)
 
 def merge(img1, img2):
+    base_avg_img = (img1 + img2) / 2
+
+    # overlap_mask = np.any(img1 > 0, axis=2) & np.any(img2 > 0, axis=2)
+    # img_combo = (img1 * ~np.atleast_3d(overlap_mask)).astype(float) + img2.astype(float)
+
     overlap_mask = np.any(img1 > 0, axis=2) & np.any(img2 > 0, axis=2)
-    img_combo = (img1 * ~np.atleast_3d(overlap_mask)).astype(float) + img2.astype(float)
-    return img_combo
+    part1 = (img1 * ~np.atleast_3d(overlap_mask)).astype(float)
+    part2 = img2.astype(float)
+    base_avg_img[part1 > 1] = part1[part1 > 1]
+    base_avg_img[part2 > 1] = part2[part2 > 1]
+
+    return base_avg_img
 
 out = combos[center]
 for i in range(center+1, len(combos)):
@@ -451,7 +556,8 @@ for i in range(center-1, -1, -1):
 # img_combo12 = check_and_stitch(0, 2)
 cv2.imwrite("mypano_full.png", out[200:2100, :])
 
-# print('a')
+print('a')
 
 # if __name__ == "__main__":
 #     main()
+print('b')
